@@ -235,40 +235,104 @@ public class JSH {
 
     // Inner class command for calling built-in / OS commands in sequence/parallel
     class Command {
+        private List<String> commandArgs;
+        private String commandName;
+        private boolean isBackground;
 
-        public Command(ArrayList<String> command_args){
-            // Verficacion de comando adecuado
-            if (!builtIns.containsKey(command_args.getFirst()) || !addons.containsKey(command_args.getFirst())){
-                /// Primera palabra del comando debe estar dentro de las delimitadas
-                throw new RuntimeException("The command specified doesnt exist");
-            } else if (){
-                /// determinar si orden de palabras correcto (Comando - argumentos - Secuencial (=>)\Paralelo (^^) O Comando - Secuencial (=>)\Paralelo (^^)) 
+        public Command(List<String> args) {
+            this.commandArgs = new ArrayList<>(args);
+            this.isBackground = false;
+
+            if (!commandArgs.isEmpty()) {
+                String lastToken = commandArgs.get(commandArgs.size() - 1);
+                if (lastToken.equals("^^")) {this.isBackground = true;}
+                commandArgs.remove(commandArgs.size() - 1); // Remover operador
+            }
+            else {throw new IllegalArgumentException("Empty command");}
             
-            } else if (){
-                /// determinar si caracteres extraños dentro del input
+            this.commandName = commandArgs.get(0);
+        }
+
+        public void execute() {
+            if (command_source.containsKey(commandName)) {
+                try {
+                    String[] argsArray = commandArgs.toArray(new String[0]);
+                    String[] result = command_source.get(commandName).apply(argsArray);
+                    
+                    // Imprimir resultado de builtins (si tienen output)
+                    if (result != null && result.length > 0) {
+                        for (String line : result) {
+                            System.out.println(line);
+                        }
+                    }
+                } catch (Exception e) {
+                    System.err.println(e.getMessage());
+                }
+            } 
+            else {
+                try {
+                    if (isBackground) {
+                        executeInBackground();
+                    } else {
+                        executeInSequence();
+                    }
+                } catch (IOException | InterruptedException e) {
+                    System.err.println("jsh: error executing command: " + e.getMessage());
+                }
             }
         }
 
-        public String[] execute(){
-            //Determines wheter to execute in sequence or background based on the operator
-        }
-        
-        public String[] executeInSequence(){
-            // Encontrar comando correspondiente de command_args[0] dentro de commands_source
-            // De recibir una excepcion retornar el mensaje de error
-            // 
+        // Ejecución en Primer Plano (=>)
+        private void executeInSequence() throws IOException, InterruptedException {
+            ProcessBuilder pb = new ProcessBuilder(commandArgs);
+            
+            // IMPORTANTE: Establecer el directorio de trabajo del proceso
+            pb.directory(actual_folder.toFile());
+
+            // Iniciar proceso
+            Process process = pb.start();
+
+            // Requisito: Imprimir "<comando>: stdout..."
+            System.out.println(String.join(" ", commandArgs) + ":");
+
+            // Leer stdout
+            try (Scanner sc = new Scanner(process.getInputStream())) {
+                while (sc.hasNextLine()) {
+                    System.out.println(sc.nextLine());
+                }
+            }
+
+            // Esperar a que termine
+            int exitCode = process.waitFor();
+
+            // Si hubo error (exitCode != 0), imprimir stderr
+            if (exitCode != 0) {
+                try (Scanner scErr = new Scanner(process.getErrorStream())) {
+                    while (scErr.hasNextLine()) {
+                        System.err.println(scErr.nextLine());
+                    }
+                }
+            }
         }
 
-        public String[] executeInBackground(){
-            // Encontrar comando correspondiente de command_args[0] dentro de commands_source
-            // Levantar el commando de manera concurrente
-            // Al retornar el resultado, imprimirlo inmediatamente en consola
-            // De recibir una excepcion retornar el mensaje de error
+        // Ejecución en Segundo Plano (^^)
+        private void executeInBackground() throws IOException {
+            ProcessBuilder pb = new ProcessBuilder(commandArgs);
+            pb.directory(actual_folder.toFile());
 
-            // Handling of command failure
+            // Para background, permitimos que la salida se herede directamente a la consola
+            // de forma asíncrona, o se podría descartar. Heredar es más visual para 'sleep'.
+            pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+
+            Process process = pb.start();
+            
+            // Requisito: Imprimir [job_id] PID
+            System.out.println("[" + (backgroundJobId++) + "] " + process.pid());
+            
+            // NO usamos waitFor(), el proceso corre solo.
         }
     }
-
     public static void main(String[] args) throws Exception {
         JSH shell = new JSH();
         shell.run();
