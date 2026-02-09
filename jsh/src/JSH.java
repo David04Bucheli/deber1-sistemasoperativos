@@ -99,6 +99,54 @@ public class JSH {
     }
 
 
+    //Helper functions
+    private boolean isOperator(String token) {
+       return token.equals("=>") || token.equals("^^");
+    }
+
+    private List<String> parseInput(String input) {     // Analizador sintactico para determinar argumentos
+        List<String> tokens = new ArrayList<>();
+        StringBuilder currentToken = new StringBuilder();
+        boolean insideDoubleQuotes = false;
+        boolean insideSingleQuotes = false;
+
+        for (int i = 0; i < input.length(); i++) {
+            char c = input.charAt(i);
+
+            if (insideSingleQuotes) {
+                if (c == '\'') {
+                    insideSingleQuotes = false; // Cierra comilla simple
+                } else {
+                    currentToken.append(c); // Agrega contenido literal
+                }
+            } else if (insideDoubleQuotes) {
+                if (c == '"') {
+                    insideDoubleQuotes = false; // Cierra comilla doble
+                } else {
+                    currentToken.append(c); // Agrega contenido literal
+                }
+            } else {
+                // Fuera de comillas
+                if ((c == ' ' || c == '\t') && (currentToken.length() > 0)) {   // Se termina el token actual
+                    tokens.add(currentToken.toString());
+                    currentToken.setLength(0); 
+                } else if (c == '"') {         // Empieza comilla doble
+                    insideDoubleQuotes = true; 
+                } else if (c == '\'') {        // Empieza comilla simple
+                    insideSingleQuotes = true; 
+                } else {                       // continua token actual
+                    currentToken.append(c);
+                }
+            }
+        }
+        
+        // Agregar el último token si quedó algo en el buffer
+        if (currentToken.length() > 0) {
+            tokens.add(currentToken.toString());
+        }
+
+        return tokens;
+    }   
 
     public void run(){
 
@@ -107,38 +155,67 @@ public class JSH {
             // Mostrar mensaje 
             System.out.print("jsh:"+ actual_folder.toString() +">> ");
             
-            // Recibircomando/s
+            // Recibir comando/s
             String input_string = scan.nextLine();
             if (history.size() >= 20){history.poll();}  // Drop the last elemnt of the history
             history.add(input_string);                  // Store the line
 
-            String[] input_array = input_string.trim().split("\\s+");
-            ArrayList<String> input_array_list = new ArrayList<>(Arrays.asList(input_array));
+            // Pasing
+            // Dividir el input usando parseInput
+            List<String> input_words = parseInput(input_string);
             
-            //Parsear commando 
             List<List<String>> commands_array = new ArrayList<>();
             List<String> current_command_args = new ArrayList<>(); 
 
-            for (String word : input_array_list) {
-                current_command_args.add(word);
-                
-                if ((word.equals("=>") || word.equals("^^")) && !current_command_args.isEmpty()) {
+            for (String word : input_words) {
+                if (isOperator(word)) {
+                    current_command_args.add(word);
                     commands_array.add(current_command_args);
                     current_command_args = new ArrayList<>();
+                } else {
+                    current_command_args.add(word);
                 }
             }
             if (!current_command_args.isEmpty()) {
                 commands_array.add(current_command_args);
             }
 
-            // Verificaciones de integridad. Revisar:
-                // Que el primer elemento de un comando no sea un operador
-                // Que todos los comandos sigan la estructura 
-                    // "comando - parametros - operador"
-                    // "comando - parametros"
-                    // "comando - operador"
-                // Que se haya ingresado al menos un comando
-                // De no respetarse notificar al usuario y cancelar la ejecución de todos los comandos ingresados
+            //Verificaciones de Integridad
+            
+            boolean syntaxValid = true;
+
+            if (commands_array.isEmpty()) {
+                continue; 
+            }
+
+            for (List<String> command_args : commands_array) {
+                if (command_args.isEmpty()) continue;
+
+                String firstToken = command_args.get(0);
+
+                // Verificacion: primer elemento no operador
+                if (isOperator(firstToken)) {
+                    System.err.println("jsh: syntax error near unexpected token '" + firstToken + "'");
+                    syntaxValid = false;
+                    break;
+                }
+
+                // Verificar estructura interna (Comando - Parametros - [Operador])
+                for (int i = 0; i < command_args.size() - 1; i++) {
+                    if (isOperator(command_args.get(i))) {
+                        System.err.println("jsh: error: operator '" + command_args.get(i) + "' must be at the end of the command block.");
+                        syntaxValid = false;
+                        break;
+                    }
+                }
+                if (!syntaxValid) break;
+            }
+
+            // Cancelar ejecución si hay errores
+            if (!syntaxValid) {
+                continue;
+            }
+
 
             
             // Determinar secuencia de comandos según operadores
