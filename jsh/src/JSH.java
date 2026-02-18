@@ -1,110 +1,98 @@
 import java.io.File;
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
-import java.util.HashSet;
-import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Queue;
 import java.util.Scanner;
-import java.util.Set;
-import java.util.function.Function;
-
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 
 public class JSH {
-    // Variables 
+    // Variables
     public Scanner scan;
     public Path actual_folder;
-    public Queue<String> history;
+    public LinkedList<String> history; // Cambiado a LinkedList para acceso por índice más fácil
     public Boolean is_running;
-    public Boolean is_running_background;
-    public HashMap<String, Function<String[], String[]>> command_source;
-    public HashMap<String, Function<String[], String[]>> addons;
+    
+    // Mapas de comandos ahora usan Consumer para imprimir directamente (void)
+    public Map<String, Consumer<String[]>> command_source;
+    
+    // Manejo de concurrencia y jobs
+    public ExecutorService executor;
+    public int jobCounter = 0;
 
-
-    public JSH(){
+    public JSH() {
         scan = new Scanner(System.in);
         actual_folder = Path.of("").toAbsolutePath();
         history = new LinkedList<>();
         is_running = true;
         
-        HashMap<String, Function<String[], String[]>> builtIns = new HashMap<>();
-        HashMap<String, Function<String[], String[]>> addons = new HashMap<>(); 
-        initializeBuiltIns(builtIns);
-        initializeAddons(addons);
-        
-        command_source.putAll(builtIns);
-        command_source.putAll(addons);
+        // Inicializar ExecutorService (CachedThreadPool es ideal para shell que lanza tareas dinámicas)
+        executor = Executors.newCachedThreadPool();
+
+        command_source = new HashMap<>();
+        initializeBuiltIns();
     }
 
-    // Helper initializers
-    private void initializeBuiltIns(HashMap<String, Function<String[], String[]>> builtIns) {
+    // Inicializadores de BuiltIns
+    private void initializeBuiltIns() {
         // exit
-        builtIns.put("exit", (args) -> {
+        command_source.put("exit", (args) -> {
+            // Nota: Si se ejecuta en background, detendrá el shell pero los hilos pueden seguir
+            // El pdf indica que exit termina la sesión.
             this.is_running = false;
-            return new String[]{"See you!"};
         });
 
         // pwd
-        builtIns.put("pwd", (args) -> {
-            return new String[]{actual_folder.toAbsolutePath().toString()};
+        command_source.put("pwd", (args) -> {
+            System.out.println(actual_folder.toAbsolutePath().toString());
         });
 
         // cd
-        builtIns.put("cd", (args) -> {
+        command_source.put("cd", (args) -> {
             if (args.length < 2) {
-                // Usually cd goes to home, but for simplicity:
-                throw new IllegalArgumentException("Usage: cd <path>"); 
+                // Comportamiento default ir a home o imprimir error
+                System.err.println("jsh: cd: missing argument");
+                return;
             }
             String dir_path_string = args[1];
             Path dir_path = Path.of(actual_folder.toString(), dir_path_string);
-            
-            // Handle absolute paths vs relative paths
-            if (dir_path.isAbsolute()) {
+
+            if (Path.of(dir_path_string).isAbsolute()) {
                 dir_path = Path.of(dir_path_string);
             }
 
+            // Normalizar para resolver ".." y "."
+            dir_path = dir_path.normalize();
+
             if (Files.isDirectory(dir_path)) {
-                try {
-                    // Normalize removes ".." and "."
-                    dir_path = dir_path.normalize();
-                    return new String[]{};
-                } catch (Exception e) {
-                    throw new RuntimeException("Error resolving path: " + e.getMessage());
-                }
+                actual_folder = dir_path;
             } else {
-                throw new RuntimeException("jsh: cd: " + dir_path + ": No such file or directory");
+                System.err.println("jsh: cd: " + dir_path_string + ": No such file or directory");
             }
         });
 
         // history
-        builtIns.put("history", (args) -> {
-            String[] lines = new String[history.size()];
+        command_source.put("history", (args) -> {
             int i = 0;
             for (String entry : history) {
-                lines[i] = (i + 1) + " " + entry;
+                System.out.println((i + 1) + " " + entry);
                 i++;
             }
-            return lines;
         });
     }
 
-    private void initializeAddons(HashMap<String, Function<String[], String[]>> addons) {
-        //Implement here the commands with Builder
-    }
-
-
-    //Helper functions
+    // Helper functions
     private boolean isOperator(String token) {
-       return token.equals("=>") || token.equals("^^");
+        return token.equals("=>") || token.equals("^^");
     }
 
-    private List<String> parseInput(String input) {     // Analizador sintactico para determinar argumentos
+    private List<String> parseInput(String input) {
         List<String> tokens = new ArrayList<>();
         StringBuilder currentToken = new StringBuilder();
         boolean insideDoubleQuotes = false;
@@ -115,231 +103,226 @@ public class JSH {
 
             if (insideSingleQuotes) {
                 if (c == '\'') {
-                    insideSingleQuotes = false; // Cierra comilla simple
+                    insideSingleQuotes = false;
                 } else {
-                    currentToken.append(c); // Agrega contenido literal
+                    currentToken.append(c);
                 }
             } else if (insideDoubleQuotes) {
                 if (c == '"') {
-                    insideDoubleQuotes = false; // Cierra comilla doble
+                    insideDoubleQuotes = false;
                 } else {
-                    currentToken.append(c); // Agrega contenido literal
+                    currentToken.append(c);
                 }
             } else {
-                // Fuera de comillas
-                if ((c == ' ' || c == '\t') && (currentToken.length() > 0)) {   // Se termina el token actual
+                if ((c == ' ' || c == '\t') && (currentToken.length() > 0)) {
                     tokens.add(currentToken.toString());
-                    currentToken.setLength(0); 
-                } else if (c == '"') {         // Empieza comilla doble
-                    insideDoubleQuotes = true; 
-                } else if (c == '\'') {        // Empieza comilla simple
-                    insideSingleQuotes = true; 
-                } else {                       // continua token actual
+                    currentToken.setLength(0);
+                } else if (c == '"') {
+                    insideDoubleQuotes = true;
+                } else if (c == '\'') {
+                    insideSingleQuotes = true;
+                } else if (c == ' ' || c == '\t') {
+                    // Ignorar espacios múltiples fuera de comillas
+                } else {
                     currentToken.append(c);
                 }
             }
         }
-        
-        // Agregar el último token si quedó algo en el buffer
         if (currentToken.length() > 0) {
             tokens.add(currentToken.toString());
         }
-
         return tokens;
-    }   
-
-    public void run(){
-
-        // Loop de menajo de comandos
-        while(true) {
-            // Mostrar mensaje 
-            System.out.print("jsh:"+ actual_folder.toString() +">> ");
-            
-            // Recibir comando/s
-            String input_string = scan.nextLine();
-            if (history.size() >= 20){history.poll();}  // Drop the last elemnt of the history
-            history.add(input_string);                  // Store the line
-
-            // Pasing
-            // Dividir el input usando parseInput
-            List<String> input_words = parseInput(input_string);
-            
-            List<List<String>> commands_array = new ArrayList<>();
-            List<String> current_command_args = new ArrayList<>(); 
-
-            for (String word : input_words) {
-                if (isOperator(word)) {
-                    current_command_args.add(word);
-                    commands_array.add(current_command_args);
-                    current_command_args = new ArrayList<>();
-                } else {
-                    current_command_args.add(word);
-                }
-            }
-            if (!current_command_args.isEmpty()) {
-                commands_array.add(current_command_args);
-            }
-
-            //Verificaciones de Integridad
-            
-            boolean syntaxValid = true;
-
-            if (commands_array.isEmpty()) {
-                continue; 
-            }
-
-            for (List<String> command_args : commands_array) {
-                if (command_args.isEmpty()) continue;
-
-                String firstToken = command_args.get(0);
-
-                // Verificacion: primer elemento no operador
-                if (isOperator(firstToken)) {
-                    System.err.println("jsh: syntax error near unexpected token '" + firstToken + "'");
-                    syntaxValid = false;
-                    break;
-                }
-
-                // Verificar estructura interna (Comando - Parametros - [Operador])
-                for (int i = 0; i < command_args.size() - 1; i++) {
-                    if (isOperator(command_args.get(i))) {
-                        System.err.println("jsh: error: operator '" + command_args.get(i) + "' must be at the end of the command block.");
-                        syntaxValid = false;
-                        break;
-                    }
-                }
-                if (!syntaxValid) break;
-            }
-
-            // Cancelar ejecución si hay errores
-            if (!syntaxValid) {
-                continue;
-            }
-
-
-            
-            // Determinar secuencia de comandos según operadores
-                // Todos los comandos se ejecutaran secuencialmente, pero aquellos con ^^ se lanzaran en el background
-                // Crear una serie de Commands, los cuales verificaran los argumentos introducidos y si se deben correr en background o no
-                // 
-                
-                
-            // Ejecutar comandos
-                // Usar command.execute()
-                // Si alguno de esos comandos es exit, esperar los commands en background e ignorar los siguientes 
-
-        }
-    
     }
 
-
-    // Inner class command for calling built-in / OS commands in sequence/parallel
-    class Command {
-        private List<String> commandArgs;
-        private String commandName;
-        private boolean isBackground;
-
-        public Command(List<String> args) {
-            this.commandArgs = new ArrayList<>(args);
-            this.isBackground = false;
-
-            if (!commandArgs.isEmpty()) {
-                String lastToken = commandArgs.get(commandArgs.size() - 1);
-                if (lastToken.equals("^^")) {this.isBackground = true;}
-                commandArgs.remove(commandArgs.size() - 1); // Remover operador
-            }
-            else {throw new IllegalArgumentException("Empty command");}
-            
-            this.commandName = commandArgs.get(0);
-        }
-
-        public void execute() {
-            if (command_source.containsKey(commandName)) {
-                try {
-                    String[] argsArray = commandArgs.toArray(new String[0]);
-                    String[] result = command_source.get(commandName).apply(argsArray);
-                    
-                    // Imprimir resultado de builtins (si tienen output)
-                    if (result != null && result.length > 0) {
-                        for (String line : result) {
-                            System.out.println(line);
-                        }
-                    }
-                } catch (Exception e) {
-                    System.err.println(e.getMessage());
+    // Lógica para recuperar comandos del historial (!n, !#)
+    private String handleHistoryExpansion(String input) {
+        input = input.trim();
+        if (input.startsWith("!")) {
+            if (input.equals("!#")) {
+                if (!history.isEmpty()) {
+                    return history.getLast();
                 }
-            } 
-            else {
+            } else {
                 try {
-                    if (isBackground) {
-                        executeInBackground();
+                    int index = Integer.parseInt(input.substring(1)) - 1;
+                    if (index >= 0 && index < history.size()) {
+                        return history.get(index);
                     } else {
-                        executeInSequence();
+                        System.err.println("jsh: !" + (index + 1) + ": event not found");
+                        return null; // Indicar error
                     }
-                } catch (IOException | InterruptedException e) {
-                    System.err.println("jsh: error executing command: " + e.getMessage());
+                } catch (NumberFormatException e) {
+                    // No es un número, ignorar
                 }
             }
         }
+        return input;
+    }
 
-        // Ejecución en Primer Plano (=>)
-        private void executeInSequence() throws IOException, InterruptedException {
-            ProcessBuilder pb = new ProcessBuilder(commandArgs);
+    public void run() {
+        while (is_running) {
+            System.out.print("jsh:" + actual_folder.toString() + ">> ");
             
-            // IMPORTANTE: Establecer el directorio de trabajo del proceso
-            pb.directory(actual_folder.toFile());
+            if (!scan.hasNextLine()) break;
+            String input_string = scan.nextLine().trim();
+            if (input_string.isEmpty()) continue;
 
-            // Iniciar proceso
-            Process process = pb.start();
+            // Manejo de historial (!n)
+            String expandedInput = handleHistoryExpansion(input_string);
+            if (expandedInput == null) continue; // Error en history
+            input_string = expandedInput;
 
-            // Requisito: Imprimir "<comando>: stdout..."
-            System.out.println(String.join(" ", commandArgs) + ":");
+            // Guardar en historial
+            if (history.size() >= 20) {
+                history.poll();
+            }
+            history.add(input_string);
 
-            // Leer stdout
-            try (Scanner sc = new Scanner(process.getInputStream())) {
-                while (sc.hasNextLine()) {
-                    System.out.println(sc.nextLine());
+            // Parsing y creación de Commands
+            List<String> tokens = parseInput(input_string);
+            List<Command> commandQueue = new ArrayList<>();
+            List<String> currentArgs = new ArrayList<>();
+
+            for (String token : tokens) {
+                if (isOperator(token)) {
+                    if (!currentArgs.isEmpty()) {
+                        boolean isBackground = token.equals("^^");
+                        commandQueue.add(new Command(currentArgs, isBackground));
+                        currentArgs = new ArrayList<>();
+                    }
+                } else {
+                    currentArgs.add(token);
                 }
             }
+            // Agregar el último comando si no terminó en operador (se asume secuencial => implícito al final de línea)
+            if (!currentArgs.isEmpty()) {
+                commandQueue.add(new Command(currentArgs, false));
+            }
 
-            // Esperar a que termine
-            int exitCode = process.waitFor();
+            // Ejecución de comandos
+            for (Command cmd : commandQueue) {
+                if (!is_running) break; // Si un comando anterior ejecutó exit
+                cmd.execute();
+            }
+        }
+        
+        // Cerrar recursos al salir
+        executor.shutdownNow();
+    }
 
-            // Si hubo error (exitCode != 0), imprimir stderr
-            if (exitCode != 0) {
-                try (Scanner scErr = new Scanner(process.getErrorStream())) {
-                    while (scErr.hasNextLine()) {
-                        System.err.println(scErr.nextLine());
-                    }
+    // =========================================================================
+    // INNER CLASS COMMAND
+    // =========================================================================
+    class Command {
+        private String[] args;
+        private boolean isBackground;
+        private String commandName;
+
+        public Command(List<String> argsList, boolean isBackground) {
+            if (argsList == null || argsList.isEmpty()) {
+                throw new IllegalArgumentException("Comando vacío detectado.");
+            }
+            this.args = argsList.toArray(new String[0]);
+            this.commandName = args[0];
+            this.isBackground = isBackground;
+            
+            // Validación básica
+            validCommand();
+        }
+
+        private void validCommand() {
+            // Aquí se podría lanzar excepción si el comando contiene caracteres ilegales
+            // o validaciones específicas requeridas. Por ahora, confiamos en el parsing.
+        }
+
+        // Método principal de ejecución
+        public void execute() {
+            boolean isBuiltIn = command_source.containsKey(commandName);
+
+            if (isBuiltIn) {
+                if (isBackground) {
+                    // Escenario: Comando JSH Paralelo
+                    executor.submit(() -> {
+                        // Incrementar job counter para built-ins también si se desea, 
+                        // aunque el pdf se enfoca en procesos del sistema.
+                        // Ejecutar
+                        command_source.get(commandName).accept(args);
+                    });
+                } else {
+                    // Escenario: Comando JSH Secuencial
+                    command_source.get(commandName).accept(args);
                 }
+            } else {
+                // Comandos Externos
+                runExternalProcess();
             }
         }
 
-        // Ejecución en Segundo Plano (^^)
-        private void executeInBackground() throws IOException {
-            ProcessBuilder pb = new ProcessBuilder(commandArgs);
-            pb.directory(actual_folder.toFile());
+        private void runExternalProcess() {
+            // Definimos el Job ID para este proceso
+            int myJobId = ++jobCounter;
 
-            // Para background, permitimos que la salida se herede directamente a la consola
-            // de forma asíncrona, o se podría descartar. Heredar es más visual para 'sleep'.
-            pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
-            pb.redirectError(ProcessBuilder.Redirect.INHERIT);
+            // Lambda wrapper para ProcessBuilder solicitado
+            // Nota: Runnable no acepta argumentos, pero usamos las variables de instancia de Command
+            Runnable executeProcess = () -> {
+                try {
+                    ProcessBuilder pb = new ProcessBuilder(args);
+                    
+                    // Transformar el path de actual folder de jsh a File
+                    File directory = actual_folder.toFile();
+                    pb.directory(directory);
 
-            Process process = pb.start();
-            
-            // Requisito: Imprimir [job_id] PID
-            System.out.println("[" + (backgroundJobId++) + "] " + process.pid());
-            
-            // NO usamos waitFor(), el proceso corre solo.
+                    // Configuración de salida
+                    if (isBackground) {
+                        // El PDF dice "Salida... puede aparecer más tarde". 
+                        // ProcessBuilder por defecto no hereda IO a menos que se diga.
+                        // Para ver salida de background, también heredamos o gestionamos streams.
+                        // Generalmente background jobs imprimen en la misma terminal.
+                        pb.inheritIO();
+                    } else {
+                        // Formato primer plano: Imprimir comando
+                        System.out.println(String.join(" ", args) + ":");
+                        pb.inheritIO();
+                    }
+                    
+                    // Combinar stderr con stdout si se desea, o dejar separado.
+                    // El checklist pide: redirectErrorStream(true)
+                    pb.redirectErrorStream(true);
+
+                    Process process = pb.start();
+
+                    // Si es paralelo, imprimir ID inmediatamente (dentro del hilo o antes)
+                    if (isBackground) {
+                        System.out.println("[" + myJobId + "] " + process.pid());
+                    }
+
+                    int exitCode = process.waitFor();
+                    
+                    // Opcional: Notificar fin de tarea background (común en shells debug)
+                    // System.out.println("Task " + myJobId + " finished with exit code: " + exitCode);
+
+                } catch (Exception e) {
+                    System.err.println("Error ejecutando comando '" + commandName + "': " + e.getMessage());
+                    // e.printStackTrace();
+                }
+            };
+
+            if (isBackground) {
+                // Escenario: Comando Externo Paralelo
+                executor.submit(executeProcess);
+            } else {
+                // Escenario: Comando Externo Secuencial
+                // Ejecutamos el lambda directamente en el hilo principal (bloqueante)
+                executeProcess.run();
+            }
         }
     }
-    public static void main(String[] args) throws Exception {
+
+    // =========================================================================
+    // MAIN ENTRY POINT (Para pruebas)
+    // =========================================================================
+    public static void main(String[] args) {
         JSH shell = new JSH();
         shell.run();
     }
-
-
 }
-
-
-
