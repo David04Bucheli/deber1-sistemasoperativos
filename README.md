@@ -8,7 +8,23 @@
 
 # Contribución de cada integrante
 
+Carlos Flores:
 
+- Diseño e implementación completa del shell jsh
+- Implementación del parser de comandos
+- Implementación de ejecución en foreground (=>)
+- Implementación de ejecución en background (^^)
+
+David Bucheli:
+- Manejo de jobs y PID
+- Implementación de historial y expansión (!n, !#)
+- Manejo de procesos externos con ProcessBuilder
+
+Alex Luna:
+
+- Configuración de concurrencia usando ExecutorService
+- Validaciones de sintaxis
+- Integración con Docker
 
 # Descripción general del proyecto
 
