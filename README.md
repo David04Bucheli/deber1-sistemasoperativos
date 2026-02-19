@@ -10,21 +10,37 @@
 
 Carlos Flores:
 
-- Diseño e implementación completa del shell jsh
-- Implementación del parser de comandos
-- Implementación de ejecución en foreground (=>)
-- Implementación de ejecución en background (^^)
+- Diseño de la arquitectura general del JSH.
+- Implementación del loop principal del shell (run()).
+- Implementación del parser de entrada:
+- Tokenización de comandos.
+- Manejo de comillas simples y dobles.
+- Separación de operadores `=>` y `^^`.
+- Implementación de validaciones de sintaxis.
+- Implementación de la expansión del historial (`!n`, `!#`).
+- Manejo del almacenamiento del historial.
 
 David Bucheli:
-- Manejo de jobs y PID
-- Implementación de historial y expansión (!n, !#)
-- Manejo de procesos externos con ProcessBuilder
+
+- Implementación de la clase interna Command.
+- Manejo de ejecución en:
+  - Foreground (secuencial con `=>`).
+  - Background (con `^^`).
+- Implementación de `ExecutorService` para manejo concurrente.
+- Asignación y control de `job_id`.
+- Obtención e impresión de PID de procesos.
+- Implementación de ejecución de procesos externos usando `ProcessBuilder`.
+- Manejo del formato de salida requerido para procesos en primer plano.
 
 Alex Luna:
 
-- Configuración de concurrencia usando ExecutorService
-- Validaciones de sintaxis
-- Integración con Docker
+- Implementación de comandos built-in.
+- Manejo correcto del cambio de directorio del shell.
+- Implementación del prompt dinámico `jsh:ruta>>`.
+- Creación del Dockerfile.
+- Configuración de la estructura de directorios requerida.
+- Construcción y publicación de la imagen en Docker Hub.
+- Pruebas funcionales completas del sistema.
 
 # Descripción general del proyecto
 
