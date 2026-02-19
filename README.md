@@ -3,6 +3,7 @@
 # Integrantes del equipo
 
 - David Sebastián Bucheli Cabezas (00329939)
+- Carlos Flores (329746)
 
 # Contribución de cada integrante
 
