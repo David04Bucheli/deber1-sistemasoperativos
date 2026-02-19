@@ -131,7 +131,27 @@ public class JSH {
         if (currentToken.length() > 0) {
             tokens.add(currentToken.toString());
         }
-        return tokens;
+
+        // Separar operadores si quedaron pegados
+        List<String> fixedTokens = new ArrayList<>();
+        for (String t : tokens) {
+            if (t.contains("=>") && !t.equals("=>")) {
+                String[] parts = t.split("=>");
+                for (int i = 0; i < parts.length; i++) {
+                    if (!parts[i].isEmpty()) fixedTokens.add(parts[i]);
+                    if (i < parts.length - 1) fixedTokens.add("=>");
+                }
+            } else if (t.contains("^^") && !t.equals("^^")) {
+                String[] parts = t.split("\\^\\^");
+                for (int i = 0; i < parts.length; i++) {
+                    if (!parts[i].isEmpty()) fixedTokens.add(parts[i]);
+                    if (i < parts.length - 1) fixedTokens.add("^^");
+                }
+            } else {
+                fixedTokens.add(t);
+            }
+        }
+        return fixedTokens;
     }
 
     // Lógica para recuperar comandos del historial (!n, !#)
@@ -196,7 +216,24 @@ public class JSH {
             }
             // Agregar el último comando si no terminó en operador (se asume secuencial => implícito al final de línea)
             if (!currentArgs.isEmpty()) {
+                // Si antes hubo ^^ y este no termina con ^^, es error
+                if (input_string.contains("^^") && !input_string.trim().endsWith("^^")) {
+                    System.err.println("jsh: background commands must end with ^^");
+                    continue;
+                }
                 commandQueue.add(new Command(currentArgs, false));
+            }
+
+
+            // Validar uso incorrecto de exit
+            for (int i = 0; i < commandQueue.size(); i++) {
+                Command c = commandQueue.get(i);
+                if (c.commandName.equals("exit")) {
+                    if (c.isBackground || commandQueue.size() > 1) {
+                        System.err.println("jsh: exit cannot be used in sequences or background");
+                        continue;
+                    }
+                }
             }
 
             // Ejecución de comandos
@@ -242,10 +279,12 @@ public class JSH {
             if (isBuiltIn) {
                 if (isBackground) {
                     // Escenario: Comando JSH Paralelo
+                    int myJobId = ++jobCounter;
                     executor.submit(() -> {
                         // Incrementar job counter para built-ins también si se desea, 
                         // aunque el pdf se enfoca en procesos del sistema.
                         // Ejecutar
+                        System.out.println("[" + myJobId + "] " + Thread.currentThread().getId());
                         command_source.get(commandName).accept(args);
                     });
                 } else {
@@ -287,7 +326,10 @@ public class JSH {
                     
                     // Combinar stderr con stdout si se desea, o dejar separado.
                     // El checklist pide: redirectErrorStream(true)
-                    pb.redirectErrorStream(true);
+
+                    // CARLITOOOOOOOOOS LEE ESTO
+                    // Dice GPT que el ip addr puede no existir en docker y que corras esto (si no lo hicimos ya antes) RUN apt-get update && apt-get install -y iproute2
+                    // pb.redirectErrorStream(true); BORRE ESTA LINEA PORQUE SEGUN LA ASIGNACION NO HAY QUE COMBIINAR
 
                     Process process = pb.start();
 
