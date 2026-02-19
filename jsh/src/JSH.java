@@ -6,25 +6,24 @@ import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
-import java.util.Queue;
 import java.util.Scanner;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 
 public class JSH {
     // Variables
     public Scanner scan;
     public Path actual_folder;
-    public LinkedList<String> history; // Cambiado a LinkedList para acceso por índice más fácil
+    public LinkedList<String> history;
     public Boolean is_running;
     
-    // Mapas de comandos ahora usan Consumer para imprimir directamente (void)
     public Map<String, Consumer<String[]>> command_source;
     
     // Manejo de concurrencia y jobs
     public ExecutorService executor;
-    public int jobCounter = 0;
+    public AtomicInteger jobCounter = new AtomicInteger(0);
 
     public JSH() {
         scan = new Scanner(System.in);
@@ -32,7 +31,7 @@ public class JSH {
         history = new LinkedList<>();
         is_running = true;
         
-        // Inicializar ExecutorService (CachedThreadPool es ideal para shell que lanza tareas dinámicas)
+        // Inicializar ExecutorService
         executor = Executors.newCachedThreadPool();
 
         command_source = new HashMap<>();
@@ -43,8 +42,6 @@ public class JSH {
     private void initializeBuiltIns() {
         // exit
         command_source.put("exit", (args) -> {
-            // Nota: Si se ejecuta en background, detendrá el shell pero los hilos pueden seguir
-            // El pdf indica que exit termina la sesión.
             this.is_running = false;
         });
 
@@ -56,7 +53,6 @@ public class JSH {
         // cd
         command_source.put("cd", (args) -> {
             if (args.length < 2) {
-                // Comportamiento default ir a home o imprimir error
                 System.err.println("jsh: cd: missing argument");
                 return;
             }
@@ -132,7 +128,7 @@ public class JSH {
             tokens.add(currentToken.toString());
         }
 
-        // Separar operadores si quedaron pegados
+        // Separar operadores en caso de que no haya separadores de espacios
         List<String> fixedTokens = new ArrayList<>();
         for (String t : tokens) {
             if (t.contains("=>") && !t.equals("=>")) {
@@ -214,18 +210,13 @@ public class JSH {
                     currentArgs.add(token);
                 }
             }
-            // Agregar el último comando si no terminó en operador (se asume secuencial => implícito al final de línea)
+            // Agregar el último comando si no terminó en operador
             if (!currentArgs.isEmpty()) {
-                // Si antes hubo ^^ y este no termina con ^^, es error
-                if (input_string.contains("^^") && !input_string.trim().endsWith("^^")) {
-                    System.err.println("jsh: background commands must end with ^^");
-                    continue;
-                }
                 commandQueue.add(new Command(currentArgs, false));
             }
 
 
-            // Validar uso incorrecto de exit
+            // Validar uso correcto de exit
             for (int i = 0; i < commandQueue.size(); i++) {
                 Command c = commandQueue.get(i);
                 if (c.commandName.equals("exit")) {
@@ -247,9 +238,7 @@ public class JSH {
         executor.shutdownNow();
     }
 
-    // =========================================================================
     // INNER CLASS COMMAND
-    // =========================================================================
     class Command {
         private String[] args;
         private boolean isBackground;
@@ -263,13 +252,6 @@ public class JSH {
             this.commandName = args[0];
             this.isBackground = isBackground;
             
-            // Validación básica
-            validCommand();
-        }
-
-        private void validCommand() {
-            // Aquí se podría lanzar excepción si el comando contiene caracteres ilegales
-            // o validaciones específicas requeridas. Por ahora, confiamos en el parsing.
         }
 
         // Método principal de ejecución
@@ -279,11 +261,9 @@ public class JSH {
             if (isBuiltIn) {
                 if (isBackground) {
                     // Escenario: Comando JSH Paralelo
-                    int myJobId = ++jobCounter;
+                    int myJobId = jobCounter.incrementAndGet();
                     executor.submit(() -> {
                         // Incrementar job counter para built-ins también si se desea, 
-                        // aunque el pdf se enfoca en procesos del sistema.
-                        // Ejecutar
                         System.out.println("[" + myJobId + "] " + Thread.currentThread().getId());
                         command_source.get(commandName).accept(args);
                     });
@@ -298,11 +278,9 @@ public class JSH {
         }
 
         private void runExternalProcess() {
-            // Definimos el Job ID para este proceso
-            int myJobId = ++jobCounter;
+
 
             // Lambda wrapper para ProcessBuilder solicitado
-            // Nota: Runnable no acepta argumentos, pero usamos las variables de instancia de Command
             Runnable executeProcess = () -> {
                 try {
                     ProcessBuilder pb = new ProcessBuilder(args);
@@ -313,28 +291,18 @@ public class JSH {
 
                     // Configuración de salida
                     if (isBackground) {
-                        // El PDF dice "Salida... puede aparecer más tarde". 
-                        // ProcessBuilder por defecto no hereda IO a menos que se diga.
-                        // Para ver salida de background, también heredamos o gestionamos streams.
-                        // Generalmente background jobs imprimen en la misma terminal.
                         pb.inheritIO();
                     } else {
-                        // Formato primer plano: Imprimir comando
                         System.out.println(String.join(" ", args) + ":");
                         pb.inheritIO();
                     }
-                    
-                    // Combinar stderr con stdout si se desea, o dejar separado.
-                    // El checklist pide: redirectErrorStream(true)
-
-                    // CARLITOOOOOOOOOS LEE ESTO
-                    // Dice GPT que el ip addr puede no existir en docker y que corras esto (si no lo hicimos ya antes) RUN apt-get update && apt-get install -y iproute2
-                    // pb.redirectErrorStream(true); BORRE ESTA LINEA PORQUE SEGUN LA ASIGNACION NO HAY QUE COMBIINAR
 
                     Process process = pb.start();
 
                     // Si es paralelo, imprimir ID inmediatamente (dentro del hilo o antes)
                     if (isBackground) {
+                        // Definimos el Job ID para este proceso
+                        int myJobId = jobCounter.incrementAndGet();
                         System.out.println("[" + myJobId + "] " + process.pid());
                     }
 
@@ -354,15 +322,12 @@ public class JSH {
                 executor.submit(executeProcess);
             } else {
                 // Escenario: Comando Externo Secuencial
-                // Ejecutamos el lambda directamente en el hilo principal (bloqueante)
                 executeProcess.run();
             }
         }
     }
 
-    // =========================================================================
     // MAIN ENTRY POINT (Para pruebas)
-    // =========================================================================
     public static void main(String[] args) {
         JSH shell = new JSH();
         shell.run();
