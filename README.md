@@ -16,7 +16,7 @@ jsh:ruta_actual>>
 # Comandos soportados
 
 Built-ins (implementados directamente en el shell)
-- 'cd'
+- `cd`
 - 'pwd'
 - 'history'
 - 'exit'
