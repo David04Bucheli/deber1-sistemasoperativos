@@ -1,5 +1,9 @@
 # deber1-sistemasoperativos
 
+# Integrantes del equipo
+
+# Contribución de cada integrante
+
 # Descripción general del proyecto
 
 Este proyecto implementa un shell personalizado llamado jsh, desarrollado en Java. El shell:
@@ -51,3 +55,19 @@ Operador `^^` (Background - Segundo plano)
 - Se normalizan rutas para manejar `.` y `..`.
 
 # Cómo compilar y ejecutar el proyecto (Local)
+
+Compilar:
+> javac JSH.java
+
+Ejecutar:
+> java JSH
+
+Construir la imagen:
+> docker build -t <usuario>/homework-1:javashell .
+
+Subir a Docker Hub
+> docker push <usuario>/homework-1:javashell
+
+Ejecutar el contenedor
+> docker run -it <usuario>/homework-1:javashell
+
