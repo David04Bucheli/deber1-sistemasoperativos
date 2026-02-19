@@ -4,6 +4,7 @@
 
 - David Sebastián Bucheli Cabezas (00329939)
 - Carlos Flores (329746)
+- Alex Luna (00328215)
 
 # Contribución de cada integrante
 
