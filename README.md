@@ -2,7 +2,11 @@
 
 # Integrantes del equipo
 
+- David Sebastián Bucheli Cabezas (00329939)
+
 # Contribución de cada integrante
+
+
 
 # Descripción general del proyecto
 
